@@ -1,0 +1,15 @@
+source:
+  path: "data/MOCT_LINK.shp"      # ITS 노드링크 shapefile 경로
+  encoding: "euc-kr"
+
+filter:
+  column: "ROAD_NO"                # 필터링 컬럼명
+  value: "863"                     # 노선번호
+
+segment:
+  length_meters: 50
+  source_crs: "EPSG:5186"         # 미터 좌표계 (분할용)
+  output_crs: "EPSG:4326"         # WGS84 (GPS 매칭용)
+
+output:
+  path: "output/road_segments.parquet"
