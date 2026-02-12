@@ -131,6 +131,7 @@ aws lambda create-function \
 # 프로듀서로 더미 데이터 전송 (863호선 실제 좌표 기반)
 cd producer
 pip install boto3
+S3_STREAM_NAME="your_stream_name"
 python producer.py --vehicles 3 --pothole-rate 0.3 --noise
 ```
 
