@@ -6,14 +6,50 @@ from pyspark.sql.types import (
 )
 import yaml
 import os
+import sys
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from dotenv import load_dotenv
 
 load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Path validation (Path Traversal 방지): 허용 기준 디렉터리
+_ALLOWED_BASE_DIR = os.path.abspath(os.getcwd())
+
+
+def _is_path_safe(path: str) -> bool:
+    """
+    Path Traversal 방지: 경로가 허용 범위 내인지 검사.
+    - s3:// 경로: '..' 포함 시 거부
+    - 로컬 경로: _ALLOWED_BASE_DIR 하위인지 검사
+    """
+    if not path or not path.strip():
+        return False
+    path = path.strip()
+    if path.startswith("s3://"):
+        return ".." not in path
+    try:
+        abs_path = os.path.abspath(path)
+        base = os.path.abspath(_ALLOWED_BASE_DIR)
+        return os.path.commonpath([abs_path, base]) == base
+    except (ValueError, OSError):
+        return False
+
+
+def _validate_paths(input_path: Optional[str], output_path: Optional[str], config_path: str) -> None:
+    """CLI/환경변수로 받은 경로 검증. 불안전하면 로그 후 종료."""
+    if input_path and not _is_path_safe(input_path):
+        logger.error("입력 경로가 허용 디렉터리 밖입니다: %s", input_path)
+        sys.exit(1)
+    if output_path and not _is_path_safe(output_path):
+        logger.error("출력 경로가 허용 디렉터리 밖입니다: %s", output_path)
+        sys.exit(1)
+    if not _is_path_safe(config_path):
+        logger.error("설정 파일 경로가 허용 디렉터리 밖입니다: %s", config_path)
+        sys.exit(1)
 
 
 def get_input_schema() -> StructType:
@@ -159,8 +195,8 @@ class AnomalyDetectionPipeline:
         )
         
         filtered_count = filtered_df.count()
-        filtered_ratio = (initial_count - filtered_count) / initial_count * 100
-        
+        filtered_ratio = (initial_count - filtered_count) / initial_count * 100 if initial_count > 0 else 0.0
+
         logger.info(f"필터링 후 레코드 수: {filtered_count:,}")
         logger.info(f"필터링된 비율: {filtered_ratio:.2f}%")
         logger.info(f"필터링 조건:")
@@ -270,9 +306,9 @@ class AnomalyDetectionPipeline:
         
         # 임계값 필터링 (Stage 2의 부하를 줄임)
         logger.info(f"임계값 필터링 적용: impact_score > {threshold}")
-        
+
         initial_count = scored_df.count()
-        filtered_df = scored_df.filter(F.col("impact_score") > threshold)
+        filtered_df = scored_df.filter(F.col("impact_score") > threshold).cache()
         filtered_count = filtered_df.count()
         
         if initial_count > 0:
@@ -298,7 +334,8 @@ class AnomalyDetectionPipeline:
             ).orderBy(F.desc("impact_score")).show(sample_size, truncate=False)
         else:
             logger.warning("임계값을 초과하는 데이터가 없습니다.")
-        
+
+        filtered_df.unpersist()
         logger.info("Impact Score 계산 완료")
         return filtered_df
 
@@ -394,21 +431,25 @@ def main(input_path: str = None, output_path: str = None, config_path: str = "co
         
         # dt 컬럼 추가 (날짜 파티셔닝용)
         result_df = result_df.withColumn("dt", F.to_date(F.col("timestamp")))
-        
+
+        # write와 count가 동일 DataFrame을 재사용하도록 cache (재계산 방지)
+        result_df = result_df.cache()
         result_df.write \
             .mode("overwrite") \
             .partitionBy("dt") \
             .option("compression", "snappy") \
             .parquet(output_path)
-        
+
         final_count = result_df.count()
-        
+        result_df.unpersist()
+
         logger.info("=" * 80)
         logger.info("Stage 1 파이프라인 완료")
         logger.info("=" * 80)
         logger.info(f"입력 레코드 수: {initial_count:,}")
         logger.info(f"출력 레코드 수: {final_count:,}")
-        logger.info(f"필터링 비율: {(1 - final_count/initial_count)*100:.2f}%")
+        filter_ratio_pct = (1 - final_count / initial_count) * 100 if initial_count > 0 else 0.0
+        logger.info(f"필터링 비율: {filter_ratio_pct:.2f}%")
         logger.info(f"출력 경로: {output_path}")
         logger.info(f"파티셔닝: dt (날짜별)")
         logger.info(f"압축 형식: Snappy")
@@ -426,11 +467,12 @@ def main(input_path: str = None, output_path: str = None, config_path: str = "co
 
 
 if __name__ == "__main__":
-    import sys
-    
     # CLI 인자 파싱
-    input_path = sys.argv[1] if len(sys.argv) > 1 else None
-    output_path = sys.argv[2] if len(sys.argv) > 2 else None
-    config_path = sys.argv[3] if len(sys.argv) > 3 else "config/config.yaml"
-    
-    main(input_path, output_path, config_path)
+    input_path_arg = sys.argv[1] if len(sys.argv) > 1 else None
+    output_path_arg = sys.argv[2] if len(sys.argv) > 2 else None
+    config_path_arg = sys.argv[3] if len(sys.argv) > 3 else "config/config.yaml"
+
+    # Path Traversal 방지: 경로 검증
+    _validate_paths(input_path_arg, output_path_arg, config_path_arg)
+
+    main(input_path_arg, output_path_arg, config_path_arg)
