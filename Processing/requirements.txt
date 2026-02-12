@@ -1,0 +1,11 @@
+# PySpark (Spark 분산 처리)
+pyspark==3.5.0
+
+# YAML 설정 파일 읽기
+PyYAML==6.0.1
+
+# 환경 변수 로드 (.env 파일)
+python-dotenv==1.0.0
+
+# Parquet 파일 처리 (PySpark 의존성)
+pyarrow==14.0.1
