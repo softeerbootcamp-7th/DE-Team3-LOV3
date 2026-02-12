@@ -1,0 +1,63 @@
+# Stage 1: Anomaly Detection Pipeline Configuration
+
+# Context Filtering Parameters
+context_filtering:
+  velocity_threshold: 5.0           # km/h - 정지 상태 필터링
+  hdop_threshold: 5.0               # GPS 수평 정밀도 저하율 임계값
+  min_satellites: 4                 # 최소 GPS 위성 수
+
+# Z-Score Normalization Parameters
+normalization:
+  sensor_columns:
+    - accel_x
+    - accel_y
+    - accel_z
+    - gyro_x
+    - gyro_y
+    - gyro_z
+  partition_by: vehicle_id          # 차량별 정규화 기준
+
+# Impact Score Calculation Parameters
+impact_score:
+  weights:
+    accel_z: 0.7                    # 수직 가속도 가중치
+    gyro_y: 0.3                     # 피치 자이로 가중치
+  threshold: 3.0                    # 이상 탐지 임계값 (Stage 2로 전달할 최소값)
+
+# Spark Optimization Parameters
+spark:
+  # 데이터 로드 최적화
+  partition_size_mb: 128            # 적정 파티션 크기 (MB)
+  min_partition_size_mb: 128        # 최소 파티션 크기 (small files 병합)
+  
+  # 셔플 최적화
+  shuffle_partitions: auto          # 'auto' 또는 정수값 (전체 데이터 크기 / 128MB)
+  
+  # 쓰기 최적화
+  coalesce_partitions: 8            # 저장 시 병합할 파티션 수 (파일 개수 제어)
+  target_file_size_mb: 256          # 목표 파일 크기 (MB)
+  
+  # AQE (Adaptive Query Execution) 설정
+  adaptive_enabled: true
+  adaptive_coalesce_enabled: true
+  skew_join_enabled: true
+
+# S3 Storage Configuration
+storage:
+  # Input Path (from previous layer)
+  input_base_path: "s3://{bucket_name}/raw_sensor_data"
+  input_partition_format: "dt=YYYY-MM-DD"
+  
+  # Output Path (Stage 1 결과)
+  output_base_path: "s3://{bucket_name}/stage1_anomaly_detected"
+  output_partition_by:
+    - dt                            # 날짜별 파티셔닝 (Predicate Pushdown 활용)
+  
+  # S3 Lifecycle Policy
+  ttl_days: 14                      # Stage 1 중간 결과 보관 기간 (일)
+  
+# Logging Configuration
+logging:
+  level: INFO
+  log_metrics: true                 # 성능 메트릭 로깅 활성화
+  log_sample_size: 10               # 샘플 데이터 출력 개수
