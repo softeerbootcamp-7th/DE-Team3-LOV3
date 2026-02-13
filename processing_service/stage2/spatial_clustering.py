@@ -167,7 +167,8 @@ class PotholeSegmentProcessor:
         self.aggregate_metrics()
 
         self.logger.info("--- Aggregated Results Preview (Top 20) ---")
-        # self.result_df.show() # 테스트용 print
+        #self.result_df.show() # 테스트용 print
+        #self.result_df.coalesce(1).write.option("header", "true").mode("overwrite").csv("data/output/pothole_results") # 테스트용 csv 저장
         self.logger.info(f"Total aggregated segments count: {self.result_df.count()}")
 
         self.save_to_rdb_upsert() # 테스트를 위해 DB 저장 비활성화
