@@ -1,0 +1,50 @@
+# EMR 전용 (입출력 경로: s3://...)
+
+storage:
+  input_base_path: "s3://softeer-final-porj/raw-sensor-data"
+  output_base_path: "s3://softeer-final-porj/stage1_anomaly_detected"
+  input_partition_format: "dt=YYYY-MM-DD"
+  ttl_days: 14
+
+spark:
+  master: null   # spark-submit 클러스터 사용
+  app_name: "Stage1-AnomalyDetection-Prod"
+  partition_size_mb: 128
+  min_partition_size_mb: 128
+  shuffle_partitions: "auto"
+  coalesce_partitions: 16
+  adaptive_enabled: true
+  adaptive_coalesce_enabled: true
+  skew_join_enabled: true
+  target_file_size_mb: 256
+
+context_filtering:
+  velocity_threshold: 5.0
+  hdop_threshold: 5.0
+  min_satellites: 4
+
+normalization:
+  sensor_columns:
+    - accel_z
+    - gyro_y
+  partition_by: trip_id
+
+impact_score:
+  weights:
+    accel_z: 0.7
+    gyro_y: 0.3
+  threshold: 3.0
+
+stage2:
+  enable_salting: true
+  salting_buckets: 10
+  road_network_format: parquet
+
+rdb:
+  url: ""
+  pothole_segments_table: pothole_segments
+
+logging:
+  level: INFO
+  log_metrics: true
+  log_sample_size: 5
