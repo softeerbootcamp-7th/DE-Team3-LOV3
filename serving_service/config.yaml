@@ -1,0 +1,34 @@
+# Layer 3: Serving - Configuration
+# 환경 변수 참조:
+#   - POSTGRES_PASSWORD: PostgreSQL 비밀번호 (필수)
+#   - POSTGRES_HOST: PostgreSQL 호스트 (기본값: localhost)
+#   - S3_BUCKET: S3 버킷명 (기본값: pothole-detection-results)
+
+app:
+  name: "PotholeDataMartLoader"
+  version: "1.0"
+  log_level: "INFO"
+
+# PostgreSQL 데이터 마트 설정
+postgres:
+  host: ${POSTGRES_HOST:-localhost}
+  port: 5432
+  user: "pothole_user"
+  password: ${POSTGRES_PASSWORD}
+  database: "road_safety"
+  batch_size: 1000
+
+# S3 설정
+# AWS credentials: EC2 IAM role 또는 ~/.aws/credentials 사용
+s3:
+  bucket: ${S3_BUCKET:-pothole-detection-results}
+  region: "ap-northeast-2"
+  # stage2_output_prefix: "stage2/parquet/pothole_segments"
+
+# Superset 대시보드 설정 (선택사항)
+superset:
+  host: ${SUPERSET_HOST:-localhost}
+  port: 8088
+  username: "admin"
+  password: ${SUPERSET_ADMIN_PASSWORD}
+  database_name: "postgresql_datamart"
