@@ -40,6 +40,7 @@ Airflow 사용 예시:
 """
 
 import logging
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -61,10 +62,12 @@ class PotholeLoader:
         self.db_engine = self._create_db_connection()
 
     def _load_config(self, config_path):
-        """YAML 설정 파일 로드"""
+        """YAML 설정 파일 로드 (환경 변수 치환)"""
         try:
             with open(config_path, "r", encoding="utf-8") as f:
-                config = yaml.safe_load(f)
+                # 환경 변수 치환 (${VAR_NAME} → 환경 변수 값)
+                config_content = os.path.expandvars(f.read())
+                config = yaml.safe_load(config_content)
             self.logger.info(f"Config loaded from {config_path}")
             return config
         except FileNotFoundError:
