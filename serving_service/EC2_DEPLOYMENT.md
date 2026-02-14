@@ -160,9 +160,3 @@ curl http://169.254.169.254/latest/meta-data/iam/security-credentials/pothole-s3
 aws s3 ls s3://your-bucket/
 ```
 
-## EC2 사양 (권장)
-
-- 인스턴스: t3.large 이상
-- 메모리: 8GB
-- 스토리지: 50GB
-- OS: Ubuntu 22.04 LTS
