@@ -1,14 +1,6 @@
 version: '3.8'
 
-# EC2 배포용 docker-compose
-# .env 파일에서 환경 변수 로드
-# 필수 환경 변수 (user-data에서 생성):
-#   - POSTGRES_PASSWORD: PostgreSQL 비밀번호
-#   - SUPERSET_SECRET_KEY: Superset JWT 시크릿 키
-#   - SUPERSET_ADMIN_PASSWORD: Superset 관리자 비밀번호
-
 services:
-  # PostgreSQL 데이터 마트
   postgres:
     image: postgres:15-alpine
     container_name: pothole-postgres
@@ -16,14 +8,14 @@ services:
       POSTGRES_USER: pothole_user
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: road_safety
-      POSTGRES_INITDB_ARGS: "-c shared_buffers=256MB -c max_connections=100"
-    # 내부 통신만 (외부 노출 X)
+    command: >
+      postgres
+      -c shared_buffers=256MB
+      -c max_connections=100
     expose:
       - "5432"
     volumes:
-      # 데이터 영속성: 호스트의 실제 디렉토리에 마운트
       - /data/postgres:/var/lib/postgresql/data
-      # SQL 초기화 스크립트
       - ./sql/01_create_tables.sql:/docker-entrypoint-initdb.d/01_create_tables.sql
       - ./sql/02_create_views.sql:/docker-entrypoint-initdb.d/02_create_views.sql
       - ./sql/03_create_indexes.sql:/docker-entrypoint-initdb.d/03_create_indexes.sql
@@ -32,9 +24,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    # 자동 재시작 정책
     restart: unless-stopped
-    # 로깅
     logging:
       driver: "json-file"
       options:
@@ -43,32 +33,22 @@ services:
     networks:
       - pothole-net
 
-  # Apache Superset 대시보드
   superset:
     image: apache/superset:latest
     container_name: pothole-superset
     environment:
-      # 시크릿 키 (환경 변수에서 로드)
       SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY}
-      # 내부 Docker 네트워크를 통한 PostgreSQL 연결
       SUPERSET_SQLALCHEMY_DATABASE_URI: "postgresql://pothole_user:${POSTGRES_PASSWORD}@postgres:5432/road_safety"
-      # 기타 설정
       SUPERSET_LOG_LEVEL: "INFO"
       SUPERSET_CACHE_DEFAULT_TIMEOUT: 86400
-    # 외부에 노출 (Superset UI 접근 필요)
     ports:
       - "8088:8088"
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
-      # 데이터 영속성
       - /data/superset:/var/lib/superset
-      # Superset 설정 파일 (선택)
-      # - ./superset_config.py:/app/superset_config.py
-    # 자동 재시작
     restart: unless-stopped
-    # 로깅
     logging:
       driver: "json-file"
       options:
@@ -76,7 +56,6 @@ services:
         max-file: "3"
     networks:
       - pothole-net
-    # 초기 계정 설정 (처음 배포 시만 필요)
     command: >
       bash -c "
       superset db upgrade &&

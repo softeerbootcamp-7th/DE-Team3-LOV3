@@ -1,115 +1,19 @@
 """
-Layer 3: Serving - S3 Parquet → PostgreSQL Loader
+Pothole Loader - S3 Parquet → PostgreSQL 적재
 
 Stage 2 Spark 잡이 생성한 parquet 파일을 S3에서 읽어
 PostgreSQL pothole_segments 테이블에 적재하는 모듈.
-
-Airflow 사용 예시:
-    from datetime import datetime
-    from airflow.operators.python import PythonOperator
-    from serving_service.loader import load_stage2_results, PotholeLoader
-
-    # Task 1: 데이터 적재
-    def load_data(**context):
-        ds = context["ds"]  # YYYY-MM-DD
-        s3_path = f"s3://bucket/stage2/pothole_segments/dt={ds}/"
-        load_stage2_results(s3_path, ds, config_path="serving_service/config.yaml")
-
-    load_task = PythonOperator(
-        task_id="load_result",
-        python_callable=load_data,
-        provide_context=True,
-        dag=my_dag,
-    )
-
-    # Task 2: MV 갱신
-    def refresh_views(**context):
-        loader = PotholeLoader("serving_service/config.yaml")
-        try:
-            loader.refresh_materialized_views()
-        finally:
-            loader.close()
-
-    refresh_task = PythonOperator(
-        task_id="refresh_materialized_views",
-        python_callable=refresh_views,
-        dag=my_dag,
-    )
-
-    load_task >> refresh_task
 """
-
-import logging
-import os
-import sys
-from datetime import datetime
-from pathlib import Path
 
 import boto3
 import pandas as pd
-import psycopg2
-from sqlalchemy import create_engine, text
-import yaml
+from sqlalchemy import text
+
+from .base_loader import BaseLoader
 
 
-class PotholeLoader:
+class PotholeLoader(BaseLoader):
     """S3 parquet → PostgreSQL 적재 엔진"""
-
-    def __init__(self, config_path="config.yaml"):
-        """설정 로드 및 DB 연결 초기화"""
-        self.logger = self._setup_logger()
-        self.config = self._load_config(config_path)
-        self.db_engine = self._create_db_connection()
-
-    def _load_config(self, config_path):
-        """YAML 설정 파일 로드 (환경 변수 치환)"""
-        try:
-            with open(config_path, "r", encoding="utf-8") as f:
-                # 환경 변수 치환 (${VAR_NAME} → 환경 변수 값)
-                config_content = os.path.expandvars(f.read())
-                config = yaml.safe_load(config_content)
-            self.logger.info(f"Config loaded from {config_path}")
-            return config
-        except FileNotFoundError:
-            self.logger.error(f"Config file not found: {config_path}")
-            sys.exit(1)
-        except yaml.YAMLError as e:
-            self.logger.error(f"YAML parse error: {e}")
-            sys.exit(1)
-
-    def _setup_logger(self):
-        """로깅 설정"""
-        logger = logging.getLogger(__name__)
-        if not logger.handlers:
-            handler = logging.StreamHandler()
-            formatter = logging.Formatter(
-                "[%(asctime)s] %(levelname)s - %(message)s",
-                datefmt="%Y-%m-%d %H:%M:%S"
-            )
-            handler.setFormatter(formatter)
-            logger.addHandler(handler)
-            logger.setLevel(logging.INFO)
-        return logger
-
-    def _create_db_connection(self):
-        """PostgreSQL 연결 생성 (SQLAlchemy)"""
-        try:
-            pg_config = self.config["postgres"]
-            connection_string = (
-                f"postgresql://{pg_config['user']}:{pg_config['password']}"
-                f"@{pg_config['host']}:{pg_config['port']}/{pg_config['database']}"
-            )
-            engine = create_engine(connection_string, echo=False)
-
-            # 연결 테스트
-            with engine.connect() as conn:
-                conn.execute(text("SELECT 1"))
-
-            self.logger.info("PostgreSQL connection established")
-            return engine
-        except Exception as e:
-            self.logger.error(f"DB connection failed: {e}")
-            raise
 
     def load_from_s3(self, s3_path, execution_date):
         """
@@ -248,12 +152,6 @@ class PotholeLoader:
         except Exception as e:
             self.logger.error(f"MV refresh failed: {e}")
             raise
-
-    def close(self):
-        """DB 연결 종료"""
-        if self.db_engine:
-            self.db_engine.dispose()
-            self.logger.info("Database connection closed")
 
 
 def load_stage2_results(s3_path, execution_date, config_path="config.yaml"):
