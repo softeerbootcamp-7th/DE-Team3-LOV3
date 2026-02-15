@@ -1,18 +1,16 @@
 import yaml
-import pymysql
-import pandas as pd
 import logging
 import traceback
 from scipy.spatial import cKDTree
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
-from pyspark.sql.types import StringType, IntegerType
+from pyspark.sql.types import StringType
 
 
 class PotholeSegmentProcessor:
     """
     S3 센서 데이터를 도로 세그먼트에 매핑하고, 단순 발생 횟수를 집계하여
-    EC2 MySQL에 저장하는 최적화된 프로세서.
+    S3에 Parquet 형식으로 저장하는 최적화된 프로세서.
 
     Note:
         Input 데이터는 이미 필터링된(충격이 있는) 데이터이므로,
@@ -102,63 +100,16 @@ class PotholeSegmentProcessor:
             F.first("lat").alias("centroid_lat")
         )
 
-    def save_to_rdb_upsert(self):
-        """MySQL에 Bulk Upsert 수행."""
-        db_conf = self.config['rdb']
+    def save_to_s3(self):
+        """집계된 결과를 S3에 Parquet 형식으로 저장."""
+        output_path = self.config['output']['s3_path']
+        self.logger.info(f"Saving aggregated results to S3: {output_path}")
 
-        def write_partition(iterator):
-            conn = None
-            cursor = None
-            try:
-                conn = pymysql.connect(
-                    host=db_conf['host'], port=db_conf['port'],
-                    user=db_conf['user'], password=db_conf['password'],
-                    database=db_conf['database'], charset='utf8mb4'
-                )
-                cursor = conn.cursor()
-
-                # 쿼리에서도 score 관련 컬럼 제거됨
-                sql = f"""
-                    INSERT INTO {db_conf['table']} (s_id, centroid_lon, centroid_lat, date, impact_count)
-                    VALUES (%s, %s, %s, %s, %s)
-                    ON DUPLICATE KEY UPDATE
-                        impact_count = impact_count + VALUES(impact_count),
-                        centroid_lon = VALUES(centroid_lon),
-                        centroid_lat = VALUES(centroid_lat)
-                """
-
-                batch_data = []
-                for row in iterator:
-                    batch_data.append((
-                        str(row.s_id),
-                        float(row.centroid_lon),
-                        float(row.centroid_lat),
-                        row.date,
-                        int(row.impact_count)
-                    ))
-
-                    if len(batch_data) >= db_conf['batch_size']:
-                        cursor.executemany(sql, batch_data)
-                        conn.commit()
-                        batch_data = []
-
-                if batch_data:
-                    cursor.executemany(sql, batch_data)
-                    conn.commit()
-
-            except Exception as e:
-                # DB 쓰기 오류 발생 시, 상세한 에러 로그와 스택 트레이스를 기록
-                import traceback
-                print(f"Error writing to DB in partition. Error: {e}\n{traceback.format_exc()}")
-                raise e
-            finally:
-                if cursor:
-                    cursor.close()
-                if conn:
-                    conn.close()
-
-        self.logger.info("Saving counts to EC2 MySQL...")
-        self.result_df.foreachPartition(write_partition)
+        # date별로 파티셔닝하여 저장
+        self.result_df.write \
+            .partitionBy("date") \
+            .mode("overwrite") \
+            .parquet(output_path)
 
     def run(self):
         self.logger.info("Starting Light-weight Job")
@@ -171,7 +122,7 @@ class PotholeSegmentProcessor:
         #self.result_df.coalesce(1).write.option("header", "true").mode("overwrite").csv("data/output/pothole_results") # 테스트용 csv 저장
         self.logger.info(f"Total aggregated segments count: {self.result_df.count()}")
 
-        self.save_to_rdb_upsert() # 테스트를 위해 DB 저장 비활성화
+        self.save_to_s3()
         self.spark.stop()
 
 

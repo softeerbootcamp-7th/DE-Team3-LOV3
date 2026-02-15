@@ -9,6 +9,9 @@ input:
   sensor_data_path: "data/dt=2026-02-12/"
   road_network_path: "data/road_network_863.csv"
 
+output:
+  s3_path: "s3a://your-bucket/stage2_aggregated/" # S3 출력 경로
+
 rdb:
   host: "127.0.0.1"
   port: 3306
